@@ -2,6 +2,8 @@ import datetime
 import os
 import urllib.request
 import re
+import os
+
 import xlrd
 from sqlalchemy import select
 
@@ -12,6 +14,8 @@ from db import create_db, engine, Session
 from models.spimex_trading_results import SpimexTradingResult
 
 create_db()
+if not os.path.isdir('tables/'):
+	os.makedirs('tables/', exist_ok=True)
 
 class URLManager:
 
