@@ -3,11 +3,12 @@ import os
 import urllib.request
 import re
 import xlrd
+from sqlalchemy import select
 
 import pandas as pd
 from pangres import upsert
 
-from db import create_db, engine
+from db import create_db, engine, Session
 from models.spimex_trading_results import SpimexTradingResult
 
 create_db()
@@ -35,27 +36,32 @@ class URLManager:
 					self.tables_hrefs.append(href)
 			else:
 				break
+		print(self.tables_hrefs[0])
 		return self.tables_hrefs
 
 	def download_xls(self) -> None:
+		starting = datetime.datetime.now()
 		table_hrefs = self.get_data_from_query()
 		print('Downloading tables...')
 		for href in table_hrefs:
 			file_path = f'tables/{href[-22:]}.xls'
 			if file_path not in self.existing_files:
 				urllib.request.urlretrieve(href, file_path)
+		print(datetime.datetime.now() - starting)
 
 	def convert_to_df(self):
 		print('Converting tables to dataframes...')
-		for table_file in self.existing_files:
+		for table_file in os.listdir('tables/'):
 			file_path = f'tables/{table_file}'
 			df = pd.read_excel(file_path, usecols='B:F,O', engine='xlrd')
 			self.dataframes[file_path] = df
+			break
 
 	def validate_tables(self):
 		print('Validating tables...')
 		search_tonn = 'Единица измерения: Метрическая тонна'
 		table_borders_pattern = re.compile(r'\b(?=[A-Z-])([A-Z0-9-]+[A-Z]+[A-Z0-9-]*)\b')
+		prev_df_length = 1
 		for file_path, df in self.dataframes.items():
 			tonn_index = df.loc[df.isin([search_tonn]).any(axis=1)].index.tolist()
 			new_df = pd.read_excel(file_path, header=tonn_index[0] + 2, usecols='B:F,O', skiprows=[tonn_index[0] + 3])
@@ -74,38 +80,59 @@ class URLManager:
 						  'total',
 						  'count']
 			new_df = new_df[new_df['count'] != '-']
-			new_df = new_df.reset_index(drop=False)
+			new_df = new_df.reset_index(drop=True)
+			new_df['id'] = pd.RangeIndex(prev_df_length, len(new_df) + prev_df_length)
+			prev_df_length += len(new_df)
+			new_df.set_index(['id'], inplace=True, drop=True)
 			self.dataframes[file_path] = new_df
 
 	def add_columns(self):
 		print('Adding columns...')
 		for path, df in self.dataframes.items():
-			oil_id = df['exchange_product_id'][0][:4]
-			delivery_basis_id = df['exchange_product_id'][0][4:7]
-			delivery_type_id = df['exchange_product_id'][0][-1]
 			date = '{0}.{1}.{2}'.format(path[-12:-10], path[-14:-12], path[-18:-14])
 			date = datetime.datetime.strptime(date, '%d.%m.%Y').date()
-
-			df['oil_id'] = oil_id
-			df['delivery_basis_id'] = delivery_basis_id
-			df['delivery_type_id'] = delivery_type_id
 			df['date'] = date
-			df['created_on'] = datetime.date.today()
-			df['updated_on'] = datetime.date.today()
-			df['id'] = 0
+			# df['created_on'] = datetime.date.today()
+			for index, row in df.iterrows():
+				oil_id = row['exchange_product_id'][:4]
+				delivery_basis_id = row['exchange_product_id'][4:7]
+				delivery_type_id = row['exchange_product_id'][-1]
+
+				df.loc[index, 'oil_id'] = oil_id
+				df.loc[index, 'delivery_basis_id'] = delivery_basis_id
+				df.loc[index, 'delivery_type_id'] = delivery_type_id
+
 
 	def load_to_db(self):
 		print('Loading to database...')
+		rows_affected = 0
 		for file_path, df in self.dataframes.items():
-			# df.set_index(['index'], inplace=True, drop=False)
-			upsert(engine, df, 'spimex_trading_results', 'ignore')
-		print('All tables loaded!')
+			with Session() as session:
+				amount_of_rows = session.query(SpimexTradingResult).count()
+				for index, rows in df.iterrows():
+					stmt = session.execute(
+							select(SpimexTradingResult).where(SpimexTradingResult.id == index)).scalars().all()
+					if stmt:
+						print(stmt)
+						df.loc[index, 'updated_on'] = datetime.date(2023, 3, 23)
+					else:
+						df.loc[index, 'updated_on'] = None
+						df.loc[index, 'created_on'] = datetime.date.today()
+				#row = select(SpimexTradingResult)
+			upsert(engine, df, 'spimex_trading_results', 'update')
+			with Session() as session:
+				amount_of_rows_after = session.query(SpimexTradingResult).count()
+			rows_affected += amount_of_rows_after - amount_of_rows
+
+		if rows_affected > 0:
+			print(f'{rows_affected} rows inserted!')
+		else:
+			print('None of rows have been inserted')
 
 
 ur = URLManager()
+# ur.download_xls()
 ur.convert_to_df()
 ur.validate_tables()
 ur.add_columns()
 ur.load_to_db()
-
-# ввести pangres, чтобы избежать дублирования данных

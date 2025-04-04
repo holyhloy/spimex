@@ -21,4 +21,4 @@ class SpimexTradingResult(BaseModel):
 	count: Mapped[int] = mapped_column()
 	date: Mapped[datetime.date] = mapped_column()
 	created_on: Mapped[datetime.date] = mapped_column()
-	updated_on: Mapped[datetime.date] = mapped_column()
+	updated_on: Mapped[datetime.date] = mapped_column(nullable=True)
