@@ -4,6 +4,7 @@ import urllib.request
 import re
 import xlrd
 from sqlalchemy import select
+from timeit import timeit
 
 import pandas as pd
 from pangres import upsert
@@ -36,28 +37,24 @@ class URLManager:
 					self.tables_hrefs.append(href)
 			else:
 				break
-		print(self.tables_hrefs[0])
 		return self.tables_hrefs
 
 	def download_xls(self) -> None:
-		starting = datetime.datetime.now()
 		table_hrefs = self.get_data_from_query()
 		print('Downloading tables...')
 		for href in table_hrefs:
 			file_path = f'tables/{href[-22:]}.xls'
 			if file_path not in self.existing_files:
 				urllib.request.urlretrieve(href, file_path)
-		print(datetime.datetime.now() - starting)
 
-	def convert_to_df(self):
+	def convert_to_df(self) -> None:
 		print('Converting tables to dataframes...')
 		for table_file in os.listdir('tables/'):
 			file_path = f'tables/{table_file}'
 			df = pd.read_excel(file_path, usecols='B:F,O', engine='xlrd')
 			self.dataframes[file_path] = df
-			break
 
-	def validate_tables(self):
+	def validate_tables(self) -> None:
 		print('Validating tables...')
 		search_tonn = 'Единица измерения: Метрическая тонна'
 		table_borders_pattern = re.compile(r'\b(?=[A-Z-])([A-Z0-9-]+[A-Z]+[A-Z0-9-]*)\b')
@@ -86,13 +83,13 @@ class URLManager:
 			new_df.set_index(['id'], inplace=True, drop=True)
 			self.dataframes[file_path] = new_df
 
-	def add_columns(self):
+	def add_columns(self) -> None:
 		print('Adding columns...')
 		for path, df in self.dataframes.items():
 			date = '{0}.{1}.{2}'.format(path[-12:-10], path[-14:-12], path[-18:-14])
 			date = datetime.datetime.strptime(date, '%d.%m.%Y').date()
 			df['date'] = date
-			# df['created_on'] = datetime.date.today()
+			df['created_on'] = datetime.date.today()
 			for index, row in df.iterrows():
 				oil_id = row['exchange_product_id'][:4]
 				delivery_basis_id = row['exchange_product_id'][4:7]
@@ -103,7 +100,7 @@ class URLManager:
 				df.loc[index, 'delivery_type_id'] = delivery_type_id
 
 
-	def load_to_db(self):
+	def load_to_db(self) -> None:
 		print('Loading to database...')
 		rows_affected = 0
 		for file_path, df in self.dataframes.items():
@@ -113,12 +110,10 @@ class URLManager:
 					stmt = session.execute(
 							select(SpimexTradingResult).where(SpimexTradingResult.id == index)).scalars().all()
 					if stmt:
-						print(stmt)
-						df.loc[index, 'updated_on'] = datetime.date(2023, 3, 23)
+						df.loc[index, 'updated_on'] = datetime.date.today()
 					else:
 						df.loc[index, 'updated_on'] = None
 						df.loc[index, 'created_on'] = datetime.date.today()
-				#row = select(SpimexTradingResult)
 			upsert(engine, df, 'spimex_trading_results', 'update')
 			with Session() as session:
 				amount_of_rows_after = session.query(SpimexTradingResult).count()
@@ -130,9 +125,9 @@ class URLManager:
 			print('None of rows have been inserted')
 
 
-ur = URLManager()
+# ur = URLManager()
 # ur.download_xls()
-ur.convert_to_df()
-ur.validate_tables()
-ur.add_columns()
-ur.load_to_db()
+# ur.convert_to_df()
+# ur.validate_tables()
+# ur.add_columns()
+# ur.load_to_db()
