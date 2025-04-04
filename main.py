@@ -4,7 +4,6 @@ import urllib.request
 import re
 import xlrd
 from sqlalchemy import select
-from timeit import timeit
 
 import pandas as pd
 from pangres import upsert
