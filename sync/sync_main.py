@@ -6,16 +6,17 @@ import os
 
 import xlrd
 from sqlalchemy import select
+from time import time
 
 import pandas as pd
 from pangres import upsert
 
-from db import create_db, engine, Session
-from models.spimex_trading_results import SpimexTradingResult
+from sync.db import create_db, engine, Session
+from sync.models.spimex_trading_results import SpimexTradingResult
 
 create_db()
-if not os.path.isdir('tables/'):
-	os.makedirs('tables/', exist_ok=True)
+if not os.path.isdir('../tables/'):
+	os.makedirs('../tables/', exist_ok=True)
 
 class URLManager:
 
@@ -24,10 +25,10 @@ class URLManager:
 		self.page_number = 0
 		self.href_pattern = re.compile(r'/upload/reports/oil_xls/oil_xls_202[3-9]\d*')
 		self.tables_hrefs = []
-		self.existing_files = os.listdir('tables/')
+		self.existing_files = os.listdir('../tables/')
 		self.dataframes = {}
 
-	def get_data_from_query(self) -> []:
+	def get_data_from_query(self) -> None:
 		print('Getting data from URL...')
 		while True:
 			self.page_number += 1
@@ -38,24 +39,25 @@ class URLManager:
 				for href in hrefs:
 					href = f'https://spimex.com/{href}'
 					self.tables_hrefs.append(href)
+					break
 			else:
 				break
-		return self.tables_hrefs
 
 	def download_xls(self) -> None:
-		table_hrefs = self.get_data_from_query()
 		print('Downloading tables...')
-		for href in table_hrefs:
-			file_path = f'tables/{href[-22:]}.xls'
+		for href in self.tables_hrefs:
+			file_path = f'../tables/{href[-22:]}.xls'
 			if file_path not in self.existing_files:
 				urllib.request.urlretrieve(href, file_path)
+				break
 
 	def convert_to_df(self) -> None:
 		print('Converting tables to dataframes...')
-		for table_file in os.listdir('tables/'):
-			file_path = f'tables/{table_file}'
+		for table_file in os.listdir('../tables/'):
+			file_path = f'../tables/{table_file}'
 			df = pd.read_excel(file_path, usecols='B:F,O', engine='xlrd')
 			self.dataframes[file_path] = df
+			break
 
 	def validate_tables(self) -> None:
 		print('Validating tables...')
@@ -107,6 +109,7 @@ class URLManager:
 		print('Loading to database...')
 		rows_affected = 0
 		for file_path, df in self.dataframes.items():
+			print(type(df.iloc[0]['volume']))
 			with Session() as session:
 				amount_of_rows = session.query(SpimexTradingResult).count()
 				for index, rows in df.iterrows():
@@ -128,9 +131,25 @@ class URLManager:
 			print('None of rows have been inserted')
 
 
-# ur = URLManager()
-# ur.download_xls()
-# ur.convert_to_df()
-# ur.validate_tables()
-# ur.add_columns()
-# ur.load_to_db()
+if __name__ == '__main__':
+	t0 = time()
+	ur = URLManager()
+	getting_data_start = time()
+	ur.get_data_from_query()
+	print(f'Время получения ссылок - {int((time() - getting_data_start))} сек')
+	download_start = time()
+	ur.download_xls()
+	print(f'Время скачивания - {int((time() - download_start))} сек')
+	converting_start = time()
+	ur.convert_to_df()
+	print(f'Время конвертации - {int((time() - converting_start))} сек')
+	validation_start = time()
+	ur.validate_tables()
+	print(f'Время валидации - {int((time() - validation_start))} сек')
+	adding_columns_start = time()
+	ur.add_columns()
+	print(f'Время добавления столбцов - {int((time() - adding_columns_start))} сек')
+	loading_to_db_start = time()
+	ur.load_to_db()
+	print(f'Время загрузки в базу - {int((time() - loading_to_db_start))} сек')
+	print(f'Общее время работы - {int((time() - t0))} сек')

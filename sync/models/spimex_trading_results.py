@@ -3,7 +3,7 @@ import datetime
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from db import BaseModel
+from sync.db import BaseModel
 
 
 class SpimexTradingResult(BaseModel):
