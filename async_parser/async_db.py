@@ -13,11 +13,7 @@ class BaseModel(AsyncAttrs, DeclarativeBase):
     __abstract__ = True
 
 engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
-prescoped_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-Session = async_scoped_session(prescoped_session, current_task)
-
-
+Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 async def create_db():
     async with engine.begin() as conn:
