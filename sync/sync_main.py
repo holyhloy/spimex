@@ -109,7 +109,6 @@ class URLManager:
 		print('Loading to database...')
 		rows_affected = 0
 		for file_path, df in self.dataframes.items():
-			print(type(df.iloc[0]['volume']))
 			with Session() as session:
 				amount_of_rows = session.query(SpimexTradingResult).count()
 				for index, rows in df.iterrows():

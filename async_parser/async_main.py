@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import re
 import os
+
 import xlrd
 
 import aiofiles
@@ -10,9 +11,8 @@ from sqlalchemy import select
 from time import time
 
 import pandas as pd
-from pangres import aupsert
 
-from async_parser.async_db import create_db, engine, Session
+from async_parser.async_db import create_db, Session
 from async_parser.models.spimex_trading_results import SpimexTradingResult
 
 
@@ -28,6 +28,7 @@ class URLManager:
         self.tables_hrefs = []
         self.existing_files = os.listdir('../tables/')
         self.dataframes = {}
+        self.instances = []
 
     async def get_data_from_query(self) -> None:
         print('Getting data from URL...')
@@ -113,31 +114,39 @@ class URLManager:
                 df.loc[index, 'delivery_basis_id'] = delivery_basis_id
                 df.loc[index, 'delivery_type_id'] = delivery_type_id
 
-
     async def load_to_db(self) -> None:
         print('Loading to database...')
         rows_affected = 0
-        for file_path, df in self.dataframes.items():
-            async with Session() as session:
-                # amount_of_rows = await session.execute(SpimexTradingResult).count()
-                for index, rows in df.iterrows():
-                    result = await session.execute(
-                            select(SpimexTradingResult).where(SpimexTradingResult.id == index))
-                    stmt = result.scalars().all()
-                    if stmt:
+        tasks = []
+
+        async with Session() as session:
+            existing_ids_query = await session.execute(select(SpimexTradingResult.id))
+            existing_ids = set(row for row in existing_ids_query.scalars().all())
+            for file_path, df in self.dataframes.items():
+                for index, row in df.iterrows():
+                    if index in existing_ids:
                         df.loc[index, 'updated_on'] = datetime.date.today()
                     else:
                         df.loc[index, 'updated_on'] = None
                         df.loc[index, 'created_on'] = datetime.date.today()
-                await aupsert(engine, df, 'spimex_trading_results', 'update')
+                        rows_affected += 1
+                        tasks.append(self.convert_decorator(row))
 
-            #     amount_of_rows_after = await session.execute(SpimexTradingResult).count()
-            # rows_affected += amount_of_rows_after - amount_of_rows
+            await asyncio.gather(*tasks)
+            session.add_all(self.instances)
+            await session.commit()
+            if rows_affected > 0:
+                print(f'{rows_affected} have been inserted')
+            else:
+                print('None of rows have been inserted')
 
-        # if rows_affected > 0:
-        #     print(f'{rows_affected} rows inserted!')
-        # else:
-        #     print('None of rows have been inserted')
+    async def convert_decorator(self, row):
+        await self.convert_row_to_model(row)
+
+    async def convert_row_to_model(self, row):
+        row = SpimexTradingResult(**row.to_dict())
+        self.instances.append(row)
+
 
 async def main():
     await create_db()
