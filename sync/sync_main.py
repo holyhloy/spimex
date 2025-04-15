@@ -1,5 +1,4 @@
 import datetime
-import os
 import urllib.request
 import re
 import os
@@ -14,7 +13,7 @@ from pangres import upsert
 from sync.db import create_db, engine, Session
 from sync.models.spimex_trading_results import SpimexTradingResult
 
-create_db()
+
 if not os.path.isdir('../tables/'):
 	os.makedirs('../tables/', exist_ok=True)
 
@@ -39,7 +38,6 @@ class URLManager:
 				for href in hrefs:
 					href = f'https://spimex.com/{href}'
 					self.tables_hrefs.append(href)
-					break
 			else:
 				break
 
@@ -49,7 +47,6 @@ class URLManager:
 			file_path = f'../tables/{href[-22:]}.xls'
 			if file_path not in self.existing_files:
 				urllib.request.urlretrieve(href, file_path)
-				break
 
 	def convert_to_df(self) -> None:
 		print('Converting tables to dataframes...')
@@ -57,7 +54,6 @@ class URLManager:
 			file_path = f'../tables/{table_file}'
 			df = pd.read_excel(file_path, usecols='B:F,O', engine='xlrd')
 			self.dataframes[file_path] = df
-			break
 
 	def validate_tables(self) -> None:
 		print('Validating tables...')
@@ -131,6 +127,7 @@ class URLManager:
 
 
 if __name__ == '__main__':
+	create_db()
 	t0 = time()
 	ur = URLManager()
 	getting_data_start = time()
